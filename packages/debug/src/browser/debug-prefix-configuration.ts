@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
+import { inject, injectable, postConstruct } from 'inversify';
 import { Command, CommandContribution, CommandHandler, CommandRegistry } from '@theia/core/lib/common/command';
 import {
     QuickOpenContribution, QuickOpenHandler, QuickOpenModel,
@@ -27,6 +27,7 @@ import { DebugSessionOptions } from './debug-session-options';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { LabelProvider } from '@theia/core/lib/browser/label-provider';
 import URI from '@theia/core/lib/common/uri';
+import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser';
 
 @injectable()
 export class DebugPrefixConfiguration implements CommandContribution, CommandHandler, QuickOpenContribution, QuickOpenHandler, QuickOpenModel {
@@ -49,14 +50,29 @@ export class DebugPrefixConfiguration implements CommandContribution, CommandHan
     @inject(LabelProvider)
     protected readonly labelProvider: LabelProvider;
 
+    @inject(StatusBar)
+    protected readonly statusBar: StatusBar;
+
     readonly prefix = 'debug ';
     readonly description = 'Debug Configuration';
+    readonly statusBarId = 'select-run-debug-statusbar-item';
 
     private readonly command: Command = {
         id: 'select.debug.configuration',
         category: 'Debug',
         label: 'Select and Start Debugging'
     };
+
+    @postConstruct()
+    init(): void {
+        this.debugSessionManager.onDidStartDebugSession(() => this.updateStatusBar());
+        this.debugConfigurationManager.onDidChange(async () => {
+            const exists = await this.statusBar.exists(this.statusBarId);
+            if (exists) {
+                this.updateStatusBar();
+            }
+        });
+    }
 
     execute(): void {
         this.prefixQuickOpenService.open(this.prefix);
@@ -118,5 +134,17 @@ export class DebugPrefixConfiguration implements CommandContribution, CommandHan
     protected runConfiguration(configuration: DebugSessionOptions): void {
         this.debugConfigurationManager.current = { ...configuration };
         this.commandRegistry.executeCommand(DebugCommands.START.id);
+    }
+
+    protected updateStatusBar(): void {
+        const text: string = this.debugConfigurationManager.current
+            ? this.debugConfigurationManager.current.configuration.name
+            : 'Start Debugging';
+        this.statusBar.setElement(this.statusBarId, {
+            alignment: StatusBarAlignment.LEFT,
+            text: '$(play) ' + text,
+            tooltip: this.command.label,
+            command: this.command.id,
+        });
     }
 }
